@@ -1,6 +1,9 @@
 var _numberOfDecks = 1;
-
+var HIGHEST_WIN_CHANCE = "highestWinChance",
+	LOWEST_LOSE_CHANCE = "lowestLoseChance";
+	
 module.exports = {
+	goal: LOWEST_LOSE_CHANCE,
 	startingPlayerHand: { cards: ["5", "10"], points: 15 },
 	startingDealerHand: { cards: ["8"], points: 8 },
 	numberOfDecks: _numberOfDecks,

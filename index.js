@@ -56,18 +56,29 @@ console.log(config.startingPlayerHand);
 
 var initShoe = initShoe(config.startingPlayerHand.cards.concat(config.startingDealerHand.cards));
 
-startSimulation(config.startingPlayerHand, config.startingDealerHand, initShoe);
+var result = startSimulation(config.startingPlayerHand, config.startingDealerHand, initShoe);
 
 console.log("PlayerHand:", config.startingPlayerHand);
 console.log("DealerHand:", config.startingDealerHand);
-console.log("Actions:", stats.actions);
-console.log("Results:", stats.results);
 fs.writeFileSync("./results.json", JSON.stringify(stats.actions) + JSON.stringify(stats.results));
-//console.log("stats:", JSON.stringify(stats));
 fs.writeFileSync("./stats.json", JSON.stringify(stats));
+fs.writeFileSync("./result.json", JSON.stringify(result));
 
 function startSimulation(playerHand, dealerHand, shoe) {
 	var hit;
+	var result = {
+		stand: {
+			winPercentage: 0,
+			losePercentage: 0,
+			drawPercentage: 0
+		},
+		hit: {
+			winPercentage: 0,
+			losePercentage: 0,
+			drawPercentage: 0
+		}
+	};
+	var simulatePlayerResult;
 	
 	// dealer gets his second card
 	stats.playerHand = playerHand;
@@ -89,24 +100,36 @@ function startSimulation(playerHand, dealerHand, shoe) {
 			dealerHand: newDealerHand
 		};
 		stats.hit[card] = hit;
-		simulatePlayer(playerHand, newDealerHand, newShoe, hit, hit.totalChance, 1);
+		simulatePlayerResult = simulatePlayer(playerHand, newDealerHand, newShoe, hit, hit.totalChance, 1);
+		
+		result[card] = simulatePlayerResult;
+		result.stand.winPercentage += simulatePlayerResult.stand.winPercentage;
+		result.stand.losePercentage += simulatePlayerResult.stand.losePercentage;
+		result.stand.drawPercentage += simulatePlayerResult.stand.drawPercentage;
+		result.hit.winPercentage += simulatePlayerResult.hit.winPercentage;
+		result.hit.losePercentage += simulatePlayerResult.hit.losePercentage;
+		result.hit.drawPercentage += simulatePlayerResult.hit.drawPercentage;
 	});
+	
+	return result;
 }
 
 function simulatePlayer(playerHand, dealerHand, shoe, parentNode, totalChance, level, firstPlayerAction) {
 	var nextLevel = level + 1;
-	var standResult = {
-		wins: 0,
-		losses: 0,
-		draws: 0,
-		winPercentage: 0,
-		losePercentage: 0,
-		drawPercentage: 0
+	var result = {
+		stand: {
+			winPercentage: 0,
+			losePercentage: 0,
+			drawPercentage: 0
+		},
+		hit: {
+			winPercentage: 0,
+			losePercentage: 0,
+			drawPercentage: 0
+		}
 	};
-	var hitResult = {
-		wins: 0,
-		losses: 0,
-		draws: 0,
+	var hitResult;
+	var totalHitResult = {
 		winPercentage: 0,
 		losePercentage: 0,
 		drawPercentage: 0
@@ -121,6 +144,11 @@ function simulatePlayer(playerHand, dealerHand, shoe, parentNode, totalChance, l
 		// round over
 		roundOverSaveStats(firstPlayerAction, LOSE, totalChance, playerHand, dealerHand);
 		
+		result = {
+			winPercentage: 0,
+			losePercentage: totalChance,
+			drawPercentage: 0
+		};
 	} else {
 		// stand
 		parentNode.stand = {
@@ -128,9 +156,9 @@ function simulatePlayer(playerHand, dealerHand, shoe, parentNode, totalChance, l
 			dealerHand: dealerHand
 		};
 		if (!firstPlayerAction) {			
-			result = simulateDealer(playerHand, dealerHand, shoe, parentNode.stand, totalChance, nextLevel, STAND);
+			result.stand = simulateDealer(playerHand, dealerHand, shoe, parentNode.stand, totalChance, nextLevel, STAND);
 		} else {
-			result = simulateDealer(playerHand, dealerHand, shoe, parentNode.stand, totalChance, nextLevel, firstPlayerAction);
+			result.stand = simulateDealer(playerHand, dealerHand, shoe, parentNode.stand, totalChance, nextLevel, firstPlayerAction);
 		}
 		
 		// hit
@@ -151,29 +179,34 @@ function simulatePlayer(playerHand, dealerHand, shoe, parentNode, totalChance, l
 			};
 			parentNode.hit[card] = hit;
 			
-			if (!firstPlayerAction) {				
-				result = simulatePlayer(newPlayerHand, dealerHand, newShoe, hit, hit.totalChance, nextLevel, HIT);
+			if (!firstPlayerAction) {
+				hitResult = simulatePlayer(newPlayerHand, dealerHand, newShoe, hit, hit.totalChance, nextLevel, HIT);
 			} else {
-				result = simulatePlayer(newPlayerHand, dealerHand, newShoe, hit, hit.totalChance, nextLevel, firstPlayerAction);
+				hitResult = simulatePlayer(newPlayerHand, dealerHand, newShoe, hit, hit.totalChance, nextLevel, firstPlayerAction);
+			}
+			
+			result.hit[card] = hitResult;
+			
+			if (hitResult.hit) {
+				totalHitResult = accumulateResult(totalHitResult, hitResult.hit);
+			} else {
+				// Looks like the player busted (so there are no more hits after that)
+				totalHitResult = accumulateResult(totalHitResult, hitResult);
 			}
 		});
+		totalHitResult = getBetterChances(result.stand, totalHitResult);
+		
+		result.hit.winPercentage = totalHitResult.winPercentage;
+		result.hit.losePercentage = totalHitResult.losePercentage;
+		result.hit.drawPercentage = totalHitResult.drawPercentage;
 	}
-	/*
-	return {
-		action: "stand/hit",
-		winPercentage:,
-		losePercentage:,
-		drawPercentage
-	};
-	*/
+	
+	return result;
 }
 
 function simulateDealer(playerHand, dealerHand, shoe, parentNode, totalChance, level, firstPlayerAction) {
 	var nextLevel = level + 1;
 	var result = {
-		wins: 0,
-		losses: 0,
-		draws: 0,
 		winPercentage: 0,
 		losePercentage: 0,
 		drawPercentage: 0
@@ -230,13 +263,37 @@ function simulateDealer(playerHand, dealerHand, shoe, parentNode, totalChance, l
 
 function accumulateResult(result, singleResult) {
 	return {
-		wins: result.wins + singleResult.wins,
-		losses: result.losses + singleResult.losses,
-		draws: result.draws + singleResult.draws,
 		winPercentage: result.winPercentage + singleResult.winPercentage,
 		losePercentage: result.losePercentage + singleResult.losePercentage,
 		drawPercentage: result.drawPercentage + singleResult.drawPercentage
 	};
+}
+
+function getBetterChances(stand, hit) {
+	switch (config.goal) {
+		case "lowestLoseChance":
+			if (stand.losePercentage === hit.losePercentage) {
+				if (stand.winPercentage > hit.winPercentage) {
+					return stand;
+				}
+				return hit;
+			}
+			if (stand.losePercentage < hit.losePercentage) {
+				return stand;
+			}
+			return hit;
+		case "highestWinChance":
+			if (stand.winPercentage === hit.winPercentage) {
+				if (stand.losePercentage < hit.losePercentage) {
+					return stand;
+				}
+				return hit;
+			}
+			if (stand.winPercentage > hit.winPercentage) {
+				return stand;
+			}
+			return hit;
+	}
 }
 
 function getResult(result, chance) {
